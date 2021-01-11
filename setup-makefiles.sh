@@ -18,50 +18,46 @@
 
 set -e
 
-export INITIAL_COPYRIGHT_YEAR=2012
-export MSM8960_DEVICE_LIST="apexqtmo comanche d2att d2bst d2cri d2csp d2mtr d2refreshspr d2spr d2tmo d2usc d2vzw espressovzw expressatt"
-export D2_DEVICE_LIST="d2att d2bst d2cri d2csp d2mtr d2refreshspr d2spr d2tmo d2usc d2vzw"
-export D2_GSM_LIST="d2att d2tmo"
-export D2_R530_LIST="d2cri d2csp d2usc"
+BOARD_COMMON=msm8960-common
+
+DEVICES_MSM8960="apexqtmo comanche d2att d2bst d2cri d2csp d2mtr d2refreshspr d2spr d2tmo d2usc d2vzw espressovzw expressatt"
+DEVICES_D2="d2att d2bst d2cri d2csp d2mtr d2refreshspr d2spr d2tmo d2usc d2vzw"
+DEVICES_D2_GSM="d2att d2tmo"
+DEVICES_D2_R530="d2cri d2csp d2usc"
+
+DEVICES_ALL="$DEVICES_MSM8960 $DEVICES_D2 $DEVICES_D2_GSM $DEVICES_D2_R530"
+
+VENDOR=samsung
+
+INITIAL_COPYRIGHT_YEAR=2012
 
 # Load extract_utils and do some sanity checks
 MY_DIR="${BASH_SOURCE%/*}"
 if [[ ! -d "$MY_DIR" ]]; then MY_DIR="$PWD"; fi
 
-CM_ROOT="$MY_DIR"/../../..
+LINEAGE_ROOT="$MY_DIR"/../../..
+DEVICE_DIR="$MY_DIR"/../$DEVICE
+DEVICE_COMMON_DIR="$MY_DIR"/../$DEVICE_COMMON
 
-HELPER="$CM_ROOT"/vendor/cm/build/tools/extract_utils.sh
+# determine which blob dirs to set up
+if [ -z "$SETUP_BOARD_COMMON_DIR" ]; then
+    SETUP_BOARD_COMMON_DIR=1
+fi
+
+if [ -z "$SETUP_DEVICE_DIR" ]; then
+    SETUP_DEVICE_DIR=0
+fi
+
+if [ -z "$SETUP_DEVICE_COMMON_DIR" ]; then
+    SETUP_DEVICE_COMMON_DIR=0
+fi
+
+HELPER="$LINEAGE_ROOT"/vendor/lineage/build/tools/extract_utils.sh
 if [ ! -f "$HELPER" ]; then
     echo "Unable to find helper script at $HELPER"
     exit 1
 fi
 . "$HELPER"
-
-# Initialize the helper for common platform
-setup_vendor "$PLATFORM_COMMON" "$VENDOR" "$CM_ROOT" true
-
-# Copyright headers and common guards for msm8960-common
-write_headers "$MSM8960_DEVICE_LIST"
-
-# The standard blobs
-write_makefiles "$MY_DIR"/proprietary-files.txt
-
-# We are done with msm8960-common
-write_footers
-
-if [ "$DEVICE_COMMON" == "d2-common" ]; then
-# Reinitialize the helper for common device
-setup_vendor "$DEVICE_COMMON" "$VENDOR" "$CM_ROOT" true
-
-# Copyright headers and guards for d2-common
-write_headers "$D2_DEVICE_LIST"
-
-write_makefiles "$MY_DIR"/../$DEVICE_COMMON/proprietary-files.txt
-
-# We are done with d2-common
-write_footers
-fi
-
 
 if [ "$DEVICE" == "d2att" ] ||
                 [ "$DEVICE" == "d2tmo" ]; then
@@ -75,23 +71,65 @@ else
 fi
 
 if [ "$BLOB_LOC" != "$DEVICE" ]; then
-# Reinitialize the helper for device with commonized ril
-setup_vendor "$BLOB_LOC" "$VENDOR" "$CM_ROOT" true
-else
-# Reinitialize the helper for device without commonized ril
-setup_vendor "$BLOB_LOC" "$VENDOR" "$CM_ROOT"
+    # Reinitialize the helper for device
+    setup_vendor "$BLOB_LOC" "$VENDOR" "$LINEAGE_ROOT" true
+
+    # Copyright headers and guards
+    if [ "$BLOB_LOC" == "d2gsm" ]; then
+    write_headers "$D2_GSM_LIST"
+    elif [ "$BLOB_LOC" == "d2r530" ]; then
+    write_headers "$D2_R530_LIST"
+    else
+    write_headers "$DEVICE"
+    fi
+
+    # The standard device blobs
+    write_makefiles $DEVICE_COMMON_DIR/proprietary-files.txt
+
+    # We are done!
+    write_footers
 fi
 
-# Copyright headers and guards
-if [ "$BLOB_LOC" == "d2gsm" ]; then
-write_headers "$D2_GSM_LIST"
-elif [ "$BLOB_LOC" == "d2r530" ]; then
-write_headers "$D2_R530_LIST"
-else
-write_headers "$DEVICE"
+if [ "$SETUP_DEVICE_COMMON_DIR" -eq 1 ] && [ -s $DEVICE_COMMON_DIR/proprietary-files.txt ]; then
+    # Reinitialize the helper for device
+    setup_vendor "$DEVICE_COMMON" "$VENDOR" "$LINEAGE_ROOT" true
+
+    # Copyright headers and guards
+    write_headers "$DEVICES"
+
+    # The standard device blobs
+    write_makefiles $DEVICE_COMMON_DIR/proprietary-files.txt
+
+    # We are done!
+    write_footers
 fi
 
-write_makefiles "$MY_DIR"/../$DEVICE/proprietary-files.txt
+if [ "$SETUP_DEVICE_DIR" -eq 1 ] && [ -s $DEVICE_DIR/proprietary-files.txt ]; then
+    # Reinitialize the helper for device
+    setup_vendor "$DEVICE" "$VENDOR" "$LINEAGE_ROOT"
 
-# We are done with device
-write_footers
+    # Copyright headers and guards
+    write_headers
+
+    # The standard device blobs
+    write_makefiles $DEVICE_DIR/proprietary-files.txt
+
+    # We are done!
+    write_footers
+fi
+
+if  [ "$SETUP_BOARD_COMMON_DIR" -eq 1 ]; then
+   # set up the board common makefiles
+   DEVICE_COMMON=$BOARD_COMMON
+
+   # Initialize the helper
+   setup_vendor "$BOARD_COMMON" "$VENDOR" "$LINEAGE_ROOT" true
+
+   # Copyright headers and guards
+   write_headers "$DEVICES_ALL"
+
+   write_makefiles "$MY_DIR"/proprietary-files.txt
+
+   # Finish
+   write_footers
+fi

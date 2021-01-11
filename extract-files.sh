@@ -1,5 +1,4 @@
 #!/bin/bash
-
 #
 # Copyright (C) 2016 The CyanogenMod Project
 # Copyright (C) 2017 The LineageOS Project
@@ -8,7 +7,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,39 +18,80 @@
 
 set -e
 
+function print_help() {
+    echo "Usage: `basename $0` [OPTIONS] "
+    echo "  -b | --setup-all  Set up all dirs (device and device-commons)"
+    echo "  -p | --path  Vendor blob source path (to ota package or system folder)"
+    echo "  -s | --section  Section to extract"
+    echo "  -c | --clean-vendor  Clean vendor dirs"
+    echo "  -h | --help Print this text"
+    exit 0
+}
+
+BOARD_COMMON=msm8960-common
+VENDOR=samsung
+
 # Load extract_utils and do some sanity checks
 MY_DIR="${BASH_SOURCE%/*}"
 if [[ ! -d "$MY_DIR" ]]; then MY_DIR="$PWD"; fi
 
-CM_ROOT="$MY_DIR"/../../..
+LINEAGE_ROOT="$MY_DIR"/../../..
+DEVICE_DIR="$MY_DIR"/../$DEVICE
+DEVICE_COMMON_DIR="$MY_DIR"/../$DEVICE_COMMON
 
-HELPER="$CM_ROOT"/vendor/cm/build/tools/extract_utils.sh
+# determine which blob dirs to set up
+if [ -z "$SETUP_BOARD_COMMON_DIR" ]; then
+    SETUP_BOARD_COMMON_DIR=1
+fi
+
+if [ -z "$SETUP_DEVICE_DIR" ]; then
+    SETUP_DEVICE_DIR=0
+fi
+
+if [ -z "$SETUP_DEVICE_COMMON_DIR" ]; then
+    SETUP_DEVICE_COMMON_DIR=0
+fi
+
+HELPER="$LINEAGE_ROOT"/vendor/lineage/build/tools/extract_utils.sh
 if [ ! -f "$HELPER" ]; then
     echo "Unable to find helper script at $HELPER"
     exit 1
 fi
 . "$HELPER"
 
-if [ $# -eq 0 ]; then
-    SRC=adb
-else
-    if [ $# -eq 1 ]; then
-        SRC=$1
-    else
-        echo "$0: bad number of arguments"
-        echo ""
-        echo "usage: $0 [PATH_TO_EXPANDED_ROM]"
-        echo ""
-        echo "If PATH_TO_EXPANDED_ROM is not specified, blobs will be extracted from"
-        echo "the device using adb pull."
-        exit 1
-    fi
+# Default to sanitizing the vendor folder before extraction
+CLEAN_VENDOR=true
+
+# check if only a single argument was passed, and set that as the
+# extraction path
+if [ "x$1" != "x" ] && [ "x$2" == "x" ]; then
+    SRC=$1
 fi
 
-# Initialize the helper for common device
-setup_vendor "$PLATFORM_COMMON" "$VENDOR" "$CM_ROOT" true
+while [ "$1" != "" ]; do
+    case $1 in
+        -b | --setup-all )      SETUP_DEVICE_DIR=1
+                                SETUP_DEVICE_COMMON_DIR=1
+                                SETUP_BOARD_COMMON_DIR=1
+                                ;;
+        -p | --path )           shift
+                                SRC=$1
+                                ;;
+        -s | --section )        shift
+                                SECTION=$1
+                                CLEAN_VENDOR=false
+                                ;;
+        -n | --no-cleanup )     CLEAN_VENDOR=false
+                                ;;
+        -h | --help )           print_help
+                                ;;
+    esac
+    shift
+done
 
-extract "$MY_DIR"/proprietary-files.txt "$SRC"
+if [ -z "$SRC" ]; then
+    SRC=adb
+fi
 
 if [ "$DEVICE" == "d2att" ] ||
 		[ "$DEVICE" == "d2tmo" ]; then
@@ -64,15 +104,22 @@ else
     export BLOB_LOC=$DEVICE
 fi
 
-if [ "$DEVICE_COMMON" == "d2-common" ]; then
-setup_vendor "$DEVICE_COMMON" "$VENDOR" "$CM_ROOT" true
-
-extract "$MY_DIR"/../$DEVICE_COMMON/proprietary-files.txt "$SRC"
+if  [ "$SETUP_BOARD_COMMON_DIR" -eq 1 ]; then
+    # Initialize the helper for common
+    setup_vendor "$BOARD_COMMON" "$VENDOR" "$LINEAGE_ROOT" true "$CLEAN_VENDOR"
+    extract "$MY_DIR"/proprietary-files.txt "$SRC" "$SECTION"
 fi
 
-# Re-initialize the helper for device
-setup_vendor "$BLOB_LOC" "$VENDOR" "$CM_ROOT"
+if [ "$SETUP_DEVICE_COMMON_DIR" -eq 1 ] && [ -s $DEVICE_COMMON_DIR/proprietary-files.txt ]; then
+    # Reinitialize the helper for device-common
+    setup_vendor "$DEVICE_COMMON" "$VENDOR" "$LINEAGE_ROOT" true "$CLEAN_VENDOR"
+    extract $DEVICE_COMMON_DIR/proprietary-files.txt "$SRC" "$SECTION"
+fi
 
-extract "$MY_DIR"/../$DEVICE/proprietary-files.txt "$SRC"
+if [ "$SETUP_DEVICE_DIR" -eq 1 ] && [ -s $DEVICE_DIR/proprietary-files.txt ]; then
+    # Reinitialize the helper for device
+    setup_vendor "$DEVICE" "$VENDOR" "$LINEAGE_ROOT" false "$CLEAN_VENDOR"
+    extract $DEVICE_DIR/proprietary-files.txt "$SRC" "$SECTION"
+fi
 
 "$MY_DIR"/setup-makefiles.sh
